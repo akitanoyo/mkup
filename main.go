@@ -233,6 +233,15 @@ func main() {
         ext := filepath.Ext(name)
 		if ext != ".md" && ext != ".mkd" && ext != ".markdown" {
             if info.IsDir() {
+                // index.md redirect
+                fim := filepath.Join(fp, "index.md")
+                _, err := os.Stat(fim)
+                if err == nil {
+                    rd, _ := filepath.Rel(cwd, fim)
+                    http.Redirect(w, r, rd, http.StatusFound)
+                    return
+                }
+
                 page := Page{}
                 dir := fp
                 page.Dirdisp = true
