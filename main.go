@@ -210,12 +210,6 @@ func main() {
 
     http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		name := r.URL.Path
-        fp := filepath.Join(cwd, name)
-        info, err := os.Stat(fp)
-        if err != nil {
-            http.Error(w, "404 page not found", 404)
-            return
-        }
 
         if strings.HasPrefix(name, "/_assets/") {
 			b, err := Asset(name[1:])
@@ -229,6 +223,13 @@ func main() {
 			return
 		}
 
+        fp := filepath.Join(cwd, name)
+        info, err := os.Stat(fp)
+        if err != nil {
+            http.Error(w, "404 page not found", 404)
+            return
+        }
+        
         ext := filepath.Ext(name)
 		if ext != ".md" && ext != ".mkd" && ext != ".markdown" {
             if info.IsDir() {
