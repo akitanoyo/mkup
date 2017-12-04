@@ -77,6 +77,11 @@ $(function() {
 {{end}}
 </ul>
 {{end}}
+{{if .CodeFileDisp}}
+<pre><code>
+{{.CodeText}}
+</code><pre>
+{{end}}
 `
 	templatedown = `</div>
 </div>
@@ -106,6 +111,8 @@ type Page struct {
     Dirdisp bool
     Dirs []string
     Files []string
+    CodeFileDisp bool
+    CodeText string
 }
 
 type String string
@@ -238,7 +245,7 @@ func main() {
                 _, err := os.Stat(fim)
                 if err == nil {
                     rd, _ := filepath.Rel(cwd, fim)
-                    http.Redirect(w, r, rd, http.StatusFound)
+                    http.Redirect(w, r, "/"+rd, http.StatusFound)
                     return
                 }
 
@@ -270,13 +277,32 @@ func main() {
 
                     fn, _ = filepath.Rel(cwd, fn)
                     if f.IsDir() {
-                        page.Dirs = append(page.Dirs, fn);
+                        page.Dirs = append(page.Dirs, "/" + fn);
                     } else {
                         if rfn.Match("\\.(md|markdown|mkd)$") {
                             page.Files = append(page.Files, "/" + fn);
                         }
                     }
                 }
+
+                w.Header().Set("Content-Type", "text/html; charset=utf-8")
+                err = tpl.Execute(w, page)
+                if err != nil {
+                    panic(err)
+                }
+                fmt.Fprint(w, templatedown)
+            } else {
+                page := Page{}
+                page.Title = name + " - mkup"
+                page.CodeFileDisp = true
+                dir := filepath.Dir(fp)
+                
+                // 階層メニュー Dirnests
+                rd, _ := filepath.Rel(cwd, dir)
+                MenuDir(rd, &page)
+
+                b, err := ioutil.ReadFile(filepath.Join(cwd, name))
+                page.CodeText = string(b)
 
                 w.Header().Set("Content-Type", "text/html; charset=utf-8")
                 err = tpl.Execute(w, page)
