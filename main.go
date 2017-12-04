@@ -12,18 +12,20 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
-
+    "html/template"
+    "regexp"
+    
 	"github.com/omeid/livereload"
 	"github.com/russross/blackfriday"
 )
 
 const (
-	template = `
+	templateup = `
 <!DOCTYPE html>
 <html>
 <head>
 <meta charset="UTF-8">
-<title>%s</title>
+<title>{{.Title}}</title>
 <link rel="stylesheet" href="/_assets/sanitize.css" media="all">
 <link rel="stylesheet" href="/_assets/github-markdown.css" media="all">
 <link rel="stylesheet" href="/_assets/sons-of-obsidian.css" media="all">
@@ -36,9 +38,48 @@ $(function() {
 	$.getScript(window.location.protocol + '//' + window.location.hostname + ':35729/livereload.js');
 });
 </script>
+<style>
+.menu {
+	 width: 980px;
+	 position:relative;
+	 margin: 20px auto;
+}
+.container {
+	 width: 980px;
+	 border-radius:3px;
+	 box-sizing: border-box;
+	 border: 1px solid #cccccc;
+	 position:relative;
+	 padding: 30px 50px;
+	 margin: 20px auto;
+}
+</style>
 </head>
 <body>
-<div class="markdown-body">%s</div>
+<div class="menu markdown-body">
+{{range $var := .Dirnests}}
+ <a href="{{$var.Path}}">{{$var.Name}}</a>/
+{{end}}
+</div>
+<div class="container">
+<div class="markdown-body">
+{{if .Dirdisp}}
+<h4>Directory</h4>
+<ul>
+{{range $var1 := .Dirs}}
+ <li><a href="{{$var1}}">{{$var1 | basename}}/</a></li>
+{{end}}
+</ul>
+<h4>Markdown</h4>
+<ul>
+{{range $var2 := .Files}}
+ <li><a href="{{$var2}}">{{$var2 | basename}}</a></li>
+{{end}}
+</ul>
+{{end}}
+`
+	templatedown = `</div>
+</div>
 </body>
 </html>
 `
@@ -54,6 +95,53 @@ var (
 	addr = flag.String("http", ":8000", "HTTP service address (e.g., ':8000')")
 )
 
+type DirNest struct {
+    Path string
+    Name string
+}
+
+type Page struct {
+    Title string
+    Dirnests []DirNest
+    Dirdisp bool
+    Dirs []string
+    Files []string
+}
+
+type String string
+
+func (str *String) Match(regex string) bool {
+    r := regexp.MustCompile(regex)
+	return r.MatchString(string(*str))
+}	
+
+func (str *String) ReplaceAll(regex, replace string) string {
+    r := regexp.MustCompile(regex)
+	*str = String(r.ReplaceAllString(string(*str), replace))
+	return string(*str)
+}
+
+func MenuDir(rd string, page *Page) {
+    dn := DirNest{"/", "[TOP]"}
+    (*page).Dirnests = append((*page).Dirnests, dn)
+
+    nrd := String(rd)
+    if nrd.Match("^[\\/\\.]$") {
+        return
+    }
+
+    rd = nrd.ReplaceAll("^\\/", "")
+    dirs := strings.Split(rd, "/")
+    nwd := ""
+    for _, sd := range dirs {
+        dn := DirNest{}
+        nwd = nwd + "/" + sd;
+        dn.Path = nwd
+        dn.Name = sd
+        (*page).Dirnests = append((*page).Dirnests, dn)
+    }
+}
+
 func main() {
 	runtime.GOMAXPROCS(runtime.NumCPU())
 	flag.Parse()
@@ -62,7 +150,7 @@ func main() {
 	lrs := livereload.New("mkup")
 	defer lrs.Close()
 
-	go func() {
+    go func() {
 		mux := http.NewServeMux()
 		mux.HandleFunc("/livereload.js", func(w http.ResponseWriter, r *http.Request) {
 			b, err := Asset("_assets/livereload.js")
@@ -112,10 +200,24 @@ func main() {
 		}
 	}()
 
-	fs := http.FileServer(http.Dir(cwd))
-	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+    funcMap := template.FuncMap{
+        "basename" : filepath.Base,
+    }
+    tpl, err := template.New("foo").Funcs(funcMap).Parse(templateup)
+    if err != nil {
+        panic(err)
+    }
+
+    http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		name := r.URL.Path
-		if strings.HasPrefix(name, "/_assets/") {
+        fp := filepath.Join(cwd, name)
+        info, err := os.Stat(fp)
+        if err != nil {
+            http.Error(w, "404 page not found", 404)
+            return
+        }
+
+        if strings.HasPrefix(name, "/_assets/") {
 			b, err := Asset(name[1:])
 			if err != nil {
 				http.Error(w, "404 page not found", 404)
@@ -126,9 +228,53 @@ func main() {
 			w.Write(b)
 			return
 		}
-		ext := filepath.Ext(name)
+
+        ext := filepath.Ext(name)
 		if ext != ".md" && ext != ".mkd" && ext != ".markdown" {
-			fs.ServeHTTP(w, r)
+            if info.IsDir() {
+                page := Page{}
+                dir := fp
+                page.Dirdisp = true
+                page.Title = name + " - mkup"
+
+                // 階層メニュー Dirnests
+                rd, _ := filepath.Rel(cwd, dir)
+                MenuDir(rd, &page)
+                
+                files, err := ioutil.ReadDir(dir)
+                if err != nil {
+                    return
+                }
+                for _, file := range files {
+                    fn := file.Name()
+                    rfn := String(fn)
+                    if rfn.Match("^[\\._]") {
+                        continue
+                    }
+                    
+                    fn = filepath.Join(dir, fn)
+                    f, err := os.Stat(fn)
+                    if err != nil {
+                        continue
+                    }
+
+                    fn, _ = filepath.Rel(cwd, fn)
+                    if f.IsDir() {
+                        page.Dirs = append(page.Dirs, fn);
+                    } else {
+                        if rfn.Match("\\.(md|markdown|mkd)$") {
+                            page.Files = append(page.Files, "/" + fn);
+                        }
+                    }
+                }
+
+                w.Header().Set("Content-Type", "text/html; charset=utf-8")
+                err = tpl.Execute(w, page)
+                if err != nil {
+                    panic(err)
+                }
+                fmt.Fprint(w, templatedown)
+            }
 			return
 		}
 		b, err := ioutil.ReadFile(filepath.Join(cwd, name))
@@ -143,8 +289,21 @@ func main() {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		renderer := blackfriday.HtmlRenderer(0, "", "")
 		b = blackfriday.Markdown(b, renderer, extensions)
-		w.Write([]byte(fmt.Sprintf(template, name, string(b))))
-	})
+
+        page := Page{}
+        page.Title = filepath.Base(name) + " - mkup"
+
+        // 階層メニュー Dirnests
+        rd := filepath.Dir(name)
+        MenuDir(rd, &page)
+        
+        err = tpl.Execute(w, page)
+        if err != nil {
+            panic(err)
+        }
+        w.Write(b)
+        fmt.Fprint(w, templatedown)
+ 	})
 
 	server := &http.Server{
 		Addr: *addr,
