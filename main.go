@@ -117,27 +117,26 @@ type Page struct {
 
 type String string
 
-func (str *String) Match(regex string) bool {
+func Match(regex string, subject string) bool {
     r := regexp.MustCompile(regex)
-	return r.MatchString(string(*str))
+	return r.MatchString(subject)
 }	
 
-func (str *String) ReplaceAll(regex, replace string) string {
+func ReplaceAll(regex, replace, subject string) string {
     r := regexp.MustCompile(regex)
-	*str = String(r.ReplaceAllString(string(*str), replace))
-	return string(*str)
+	subject = r.ReplaceAllString(subject, replace)
+	return subject
 }
 
 func MenuDir(rd string, page *Page) {
     dn := DirNest{"/", "[TOP]"}
     (*page).Dirnests = append((*page).Dirnests, dn)
 
-    nrd := String(rd)
-    if nrd.Match("^[\\/\\.]$") {
+    if Match("^[\\/\\.]$", rd) {
         return
     }
 
-    rd = nrd.ReplaceAll("^\\/", "")
+    rd = ReplaceAll("^\\/", "", rd)
     dirs := strings.Split(rd, "/")
     nwd := ""
     for _, sd := range dirs {
@@ -264,8 +263,7 @@ func main() {
                 }
                 for _, file := range files {
                     fn := file.Name()
-                    rfn := String(fn)
-                    if rfn.Match("^[\\._]") {
+                    if Match("^[\\._]", fn) {
                         continue
                     }
                     
@@ -279,7 +277,7 @@ func main() {
                     if f.IsDir() {
                         page.Dirs = append(page.Dirs, "/" + fn);
                     } else {
-                        if rfn.Match("\\.(md|markdown|mkd)$") {
+                        if Match("\\.(md|markdown|mkd)$", fn) {
                             page.Files = append(page.Files, "/" + fn);
                         }
                     }
