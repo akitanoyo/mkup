@@ -9,6 +9,7 @@ import (
 	"mime"
 	"net/http"
 	"os"
+    "io"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -290,26 +291,37 @@ func main() {
                 }
                 fmt.Fprint(w, templatedown)
             } else {
-                page := Page{}
-                page.Title = name + " - mkup"
-                page.CodeFileDisp = true
-                dir := filepath.Dir(fp)
-                
-                // 階層メニュー Dirnests
-                rd, _ := filepath.Rel(cwd, dir)
-                MenuDir(rd, &page)
+                ext = strings.ToLower(ext)
+                if Match("(\\.jpg|\\.gif|\\.png)", ext) {
+                    rfp, err := os.Open(filepath.Join(cwd, name))
+                    if err != nil {
+                        http.Error(w, "404 page not found", 404)
+                        return
+                    }
+                    defer rfp.Close()
+                    io.Copy(w, rfp)
+                } else {
+                    page := Page{}
+                    page.Title = name + " - mkup"
+                    page.CodeFileDisp = true
+                    dir := filepath.Dir(fp)
+                    
+                    // 階層メニュー Dirnests
+                    rd, _ := filepath.Rel(cwd, dir)
+                    MenuDir(rd, &page)
 
-                b, err := ioutil.ReadFile(filepath.Join(cwd, name))
-                page.CodeText = string(b)
+                    b, err := ioutil.ReadFile(filepath.Join(cwd, name))
+                    page.CodeText = string(b)
 
-                w.Header().Set("Content-Type", "text/html; charset=utf-8")
-                err = tpl.Execute(w, page)
-                if err != nil {
-                    panic(err)
+                    w.Header().Set("Content-Type", "text/html; charset=utf-8")
+                    err = tpl.Execute(w, page)
+                    if err != nil {
+                        panic(err)
+                    }
+                    fmt.Fprint(w, templatedown)
                 }
-                fmt.Fprint(w, templatedown)
+                return
             }
-			return
 		}
 		b, err := ioutil.ReadFile(filepath.Join(cwd, name))
 		if err != nil {
