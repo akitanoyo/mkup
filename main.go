@@ -290,6 +290,7 @@ func main() {
                     panic(err)
                 }
                 fmt.Fprint(w, templatedown)
+                return 
             } else {
                 ext = strings.ToLower(ext)
                 if Match("(\\.jpg|\\.gif|\\.png)", ext) {
