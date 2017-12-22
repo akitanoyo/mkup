@@ -9,12 +9,15 @@ import (
 	"mime"
 	"net/http"
 	"os"
+    "os/exec"
     "io"
 	"path/filepath"
 	"runtime"
 	"strings"
     "html/template"
     "regexp"
+    "bufio"
+    "html"
     
 	"github.com/omeid/livereload"
 	"github.com/russross/blackfriday"
@@ -54,6 +57,12 @@ $(function() {
 	 padding: 30px 50px;
 	 margin: 20px auto;
 }
+.right {
+	 float: right;
+}
+input {
+     border: 1px solid #cccccc;
+}
 </style>
 </head>
 <body>
@@ -61,6 +70,11 @@ $(function() {
 {{range $var := .Dirnests}}
  <a href="{{$var.Path}}">{{$var.Name}}</a>/
 {{end}}
+<div class="right">
+<form action="{{.Spath}}" method="post">
+<p><input type="text" name="word" size="20"><input type="submit" value="検索"></p>
+</form>
+</div>
 </div>
 <div class="container">
 <div class="markdown-body">
@@ -108,6 +122,7 @@ type DirNest struct {
 
 type Page struct {
     Title string
+    Spath  string
     Dirnests []DirNest
     Dirdisp bool
     Dirs []string
@@ -130,6 +145,8 @@ func ReplaceAll(regex, replace, subject string) string {
 }
 
 func MenuDir(rd string, page *Page) {
+    (*page).Spath = filepath.Join("/_search", rd) + "/"
+
     dn := DirNest{"/", "[TOP]"}
     (*page).Dirnests = append((*page).Dirnests, dn)
 
@@ -308,6 +325,82 @@ func dirview(cwd string, w http.ResponseWriter, r *http.Request) {
     return 
 }
 
+func search(cwd string, w http.ResponseWriter, r *http.Request) {
+    name := r.URL.Path
+    name = ReplaceAll("^/_search", "", name)
+    r.ParseForm()
+    word := r.Form.Get("word")
+    
+    if len(word) <= 0 {
+        http.Redirect(w, r, name, http.StatusFound)
+        return
+    }
+    name = filepath.Join(cwd, name)
+
+    page := Page{}
+    page.Title = "search - mkup"
+
+    // 階層メニュー Dirnests
+    rd, _ := filepath.Rel(cwd, name)
+    MenuDir(rd, &page)
+    
+    w.Header().Set("Content-Type", "text/html; charset=utf-8")
+
+    // fmt.Fprintf(w, "search %s  word→%s", name, word)
+    path, err := exec.LookPath("ag")
+    cmd := exec.Command(path, "-i", word, name)
+    // fmt.Printf("%s -i %s %s\n", path, word, name)
+    
+    stdout, err := cmd.StdoutPipe()
+    if err != nil {
+        http.Error(w, "404 page not found (ag not found)", 404)
+        return
+    }
+    err = cmd.Start()
+    if err != nil {
+        http.Error(w, "404 page not found (ag not found)", 404)
+        return
+    }
+
+    // tpl
+    funcMap := template.FuncMap{
+        "basename" : filepath.Base,
+    }
+    tpl, err := template.New("foo").Funcs(funcMap).Parse(templateup)
+    if err != nil {
+        panic(err)
+    }
+    err = tpl.Execute(w, page)
+    if err != nil {
+        panic(err)
+    }
+
+    fmt.Fprintf(w, "<h2>%s の検索結果</h2><br />\n", word)
+    
+    s := bufio.NewScanner(stdout)
+    b := ""
+    for s.Scan() {
+        t := s.Text()
+        pr := strings.Split(t, ":")
+        f, err := filepath.Rel(cwd, pr[0])
+        if err == nil {
+            if b != f {
+                b = f
+                fmt.Fprintf(w, "<a href=\"/%s\">%s</a><br />\n", f, f)
+            }
+            t := strings.Join(pr[2:], ":")
+            fmt.Fprintf(w, "　%v : %s<br />", pr[1], html.EscapeString(t))
+        } else {
+            fmt.Fprintf(w, "%s<br />\n", t)
+        }
+    }
+
+    fmt.Fprint(w, templatedown)
+
+    return
+}
+
+
 func main() {
 	runtime.GOMAXPROCS(runtime.NumCPU())
 	flag.Parse()
@@ -376,6 +469,11 @@ func main() {
 
         w.Header().Set("Content-Type", mime.TypeByExtension(filepath.Ext(name)))
         w.Write(b)
+        return
+    })
+
+    http.HandleFunc("/_search/", func(w http.ResponseWriter, r *http.Request) {
+        search(cwd, w, r)
         return
     })
 
