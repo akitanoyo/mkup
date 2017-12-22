@@ -149,6 +149,165 @@ func MenuDir(rd string, page *Page) {
     }
 }
 
+func fileview(cwd string, w http.ResponseWriter, r *http.Request) {
+    name := r.URL.Path
+    fp := filepath.Join(cwd, name)
+
+    page := Page{}
+    page.Title = name + " - mkup"
+    page.CodeFileDisp = true
+    dir := filepath.Dir(fp)
+    
+    // 階層メニュー Dirnests
+    rd, _ := filepath.Rel(cwd, dir)
+    MenuDir(rd, &page)
+
+    b, err := ioutil.ReadFile(filepath.Join(cwd, name))
+    page.CodeText = string(b)
+
+    w.Header().Set("Content-Type", "text/html; charset=utf-8")
+
+    // tpl
+    funcMap := template.FuncMap{
+        "basename" : filepath.Base,
+    }
+    tpl, err := template.New("foo").Funcs(funcMap).Parse(templateup)
+    if err != nil {
+        panic(err)
+    }
+    err = tpl.Execute(w, page)
+    if err != nil {
+        panic(err)
+    }
+
+    fmt.Fprint(w, templatedown)
+
+    return
+}
+
+func mdview(cwd string, w http.ResponseWriter, r *http.Request) {
+    name := r.URL.Path
+    b, err := ioutil.ReadFile(filepath.Join(cwd, name))
+    if err != nil {
+        if os.IsNotExist(err) {
+            http.Error(w, "404 page not found", 404)
+            return
+        }
+        http.Error(w, err.Error(), 500)
+        return
+    }
+
+    w.Header().Set("Content-Type", "text/html; charset=utf-8")
+
+    renderer := blackfriday.HtmlRenderer(0, "", "")
+    b = blackfriday.Markdown(b, renderer, extensions)
+
+    page := Page{}
+    page.Title = filepath.Base(name) + " - mkup"
+
+    // 階層メニュー Dirnests
+    rd := filepath.Dir(name)
+    MenuDir(rd, &page)
+    
+    // tpl
+    funcMap := template.FuncMap{
+        "basename" : filepath.Base,
+    }
+    tpl, err := template.New("foo").Funcs(funcMap).Parse(templateup)
+    if err != nil {
+        panic(err)
+    }
+    err = tpl.Execute(w, page)
+    if err != nil {
+        panic(err)
+    }
+
+    w.Write(b)
+
+    fmt.Fprint(w, templatedown)
+    return
+}
+
+func imageview(cwd string, w http.ResponseWriter, r *http.Request) {
+    name := r.URL.Path
+    rfp, err := os.Open(filepath.Join(cwd, name))
+    if err != nil {
+        http.Error(w, "404 page not found", 404)
+        return
+    }
+    defer rfp.Close()
+    io.Copy(w, rfp)
+    return
+}
+
+
+func dirview(cwd string, w http.ResponseWriter, r *http.Request) {
+    name := r.URL.Path
+    dir := filepath.Join(cwd, name)
+
+    // index.md redirect
+    fim := filepath.Join(dir, "index.md")
+    _, err := os.Stat(fim)
+    if err == nil {
+        rd, _ := filepath.Rel(cwd, fim)
+        http.Redirect(w, r, "/"+rd, http.StatusFound)
+        return
+    }
+
+    page := Page{}
+    page.Dirdisp = true
+    page.Title = name + " - mkup"
+
+    // 階層メニュー Dirnests
+    rd, _ := filepath.Rel(cwd, dir)
+    MenuDir(rd, &page)
+    
+    files, err := ioutil.ReadDir(dir)
+    if err != nil {
+        return
+    }
+    for _, file := range files {
+        fn := file.Name()
+        if Match("^[\\._]", fn) {
+            continue
+        }
+        
+        fn = filepath.Join(dir, fn)
+        f, err := os.Stat(fn)
+        if err != nil {
+            continue
+        }
+
+        fn, _ = filepath.Rel(cwd, fn)
+        if f.IsDir() {
+            page.Dirs = append(page.Dirs, "/" + fn);
+        } else {
+            if Match("\\.(md|markdown|mkd)$", fn) {
+                page.Files = append(page.Files, "/" + fn);
+            }
+        }
+    }
+
+    w.Header().Set("Content-Type", "text/html; charset=utf-8")
+
+    // tpl
+    funcMap := template.FuncMap{
+        "basename" : filepath.Base,
+    }
+    tpl, err := template.New("foo").Funcs(funcMap).Parse(templateup)
+    if err != nil {
+        panic(err)
+    }
+    err = tpl.Execute(w, page)
+    if err != nil {
+        panic(err)
+    }
+
+    fmt.Fprint(w, templatedown)
+
+    return 
+}
+
 func main() {
 	runtime.GOMAXPROCS(runtime.NumCPU())
 	flag.Parse()
@@ -207,28 +366,24 @@ func main() {
 		}
 	}()
 
-    funcMap := template.FuncMap{
-        "basename" : filepath.Base,
-    }
-    tpl, err := template.New("foo").Funcs(funcMap).Parse(templateup)
-    if err != nil {
-        panic(err)
-    }
+    http.HandleFunc("/_assets/", func(w http.ResponseWriter, r *http.Request) {
+		name := r.URL.Path
+        b, err := Asset(name[1:])
+        if err != nil {
+            http.Error(w, "404 page not found", 404)
+            return
+        }
 
+        w.Header().Set("Content-Type", mime.TypeByExtension(filepath.Ext(name)))
+        w.Write(b)
+        return
+    })
+
+    mdext  := map[string]bool{".md": true, ".mkd": true, ".markdown": true}
+    imgext := map[string]bool{".jpeg": true , ".jpg": true, ".gif": true, ".png": true}
+    
     http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		name := r.URL.Path
-
-        if strings.HasPrefix(name, "/_assets/") {
-			b, err := Asset(name[1:])
-			if err != nil {
-				http.Error(w, "404 page not found", 404)
-				return
-			}
-
-			w.Header().Set("Content-Type", mime.TypeByExtension(filepath.Ext(name)))
-			w.Write(b)
-			return
-		}
 
         fp := filepath.Join(cwd, name)
         info, err := os.Stat(fp)
@@ -237,119 +392,22 @@ func main() {
             return
         }
         
-        ext := filepath.Ext(name)
-		if ext != ".md" && ext != ".mkd" && ext != ".markdown" {
-            if info.IsDir() {
-                // index.md redirect
-                fim := filepath.Join(fp, "index.md")
-                _, err := os.Stat(fim)
-                if err == nil {
-                    rd, _ := filepath.Rel(cwd, fim)
-                    http.Redirect(w, r, "/"+rd, http.StatusFound)
-                    return
-                }
-
-                page := Page{}
-                dir := fp
-                page.Dirdisp = true
-                page.Title = name + " - mkup"
-
-                // 階層メニュー Dirnests
-                rd, _ := filepath.Rel(cwd, dir)
-                MenuDir(rd, &page)
-                
-                files, err := ioutil.ReadDir(dir)
-                if err != nil {
-                    return
-                }
-                for _, file := range files {
-                    fn := file.Name()
-                    if Match("^[\\._]", fn) {
-                        continue
-                    }
-                    
-                    fn = filepath.Join(dir, fn)
-                    f, err := os.Stat(fn)
-                    if err != nil {
-                        continue
-                    }
-
-                    fn, _ = filepath.Rel(cwd, fn)
-                    if f.IsDir() {
-                        page.Dirs = append(page.Dirs, "/" + fn);
-                    } else {
-                        if Match("\\.(md|markdown|mkd)$", fn) {
-                            page.Files = append(page.Files, "/" + fn);
-                        }
-                    }
-                }
-
-                w.Header().Set("Content-Type", "text/html; charset=utf-8")
-                err = tpl.Execute(w, page)
-                if err != nil {
-                    panic(err)
-                }
-                fmt.Fprint(w, templatedown)
-                return 
-            } else {
-                ext = strings.ToLower(ext)
-                if Match("(\\.jpg|\\.gif|\\.png)", ext) {
-                    rfp, err := os.Open(filepath.Join(cwd, name))
-                    if err != nil {
-                        http.Error(w, "404 page not found", 404)
-                        return
-                    }
-                    defer rfp.Close()
-                    io.Copy(w, rfp)
-                } else {
-                    page := Page{}
-                    page.Title = name + " - mkup"
-                    page.CodeFileDisp = true
-                    dir := filepath.Dir(fp)
-                    
-                    // 階層メニュー Dirnests
-                    rd, _ := filepath.Rel(cwd, dir)
-                    MenuDir(rd, &page)
-
-                    b, err := ioutil.ReadFile(filepath.Join(cwd, name))
-                    page.CodeText = string(b)
-
-                    w.Header().Set("Content-Type", "text/html; charset=utf-8")
-                    err = tpl.Execute(w, page)
-                    if err != nil {
-                        panic(err)
-                    }
-                    fmt.Fprint(w, templatedown)
-                }
+        if info.IsDir() {
+            dirview(cwd, w, r)
+            return
+        } else {
+            ext := strings.ToLower(filepath.Ext(name))
+            if imgext[ext] {
+                imageview(cwd, w, r)
                 return
+            } else if mdext[ext] {
+                mdview(cwd, w, r)
+                return
+            } else {
+                fileview(cwd, w, r)
+                return 
             }
-		}
-		b, err := ioutil.ReadFile(filepath.Join(cwd, name))
-		if err != nil {
-			if os.IsNotExist(err) {
-				http.Error(w, "404 page not found", 404)
-				return
-			}
-			http.Error(w, err.Error(), 500)
-			return
-		}
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		renderer := blackfriday.HtmlRenderer(0, "", "")
-		b = blackfriday.Markdown(b, renderer, extensions)
-
-        page := Page{}
-        page.Title = filepath.Base(name) + " - mkup"
-
-        // 階層メニュー Dirnests
-        rd := filepath.Dir(name)
-        MenuDir(rd, &page)
-        
-        err = tpl.Execute(w, page)
-        if err != nil {
-            panic(err)
         }
-        w.Write(b)
-        fmt.Fprint(w, templatedown)
  	})
 
 	server := &http.Server{
