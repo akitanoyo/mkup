@@ -18,7 +18,8 @@ import (
     "regexp"
     "bufio"
     "html"
-    
+
+    "golang.org/x/exp/utf8string"
 	"github.com/omeid/livereload"
 	"github.com/russross/blackfriday"
 )
@@ -348,7 +349,14 @@ func search(cwd string, w http.ResponseWriter, r *http.Request) {
 
     // fmt.Fprintf(w, "search %s  word→%s", name, word)
     path, err := exec.LookPath("ag")
-    cmd := exec.Command(path, "-i", word, name)
+
+    cmd := &exec.Cmd{}
+    asci := utf8string.NewString(word)
+    if asci.IsASCII() {
+        cmd = exec.Command(path, "-i", word, name)
+    } else {
+        cmd = exec.Command(path, word, name)
+    }
     // fmt.Printf("%s -i %s %s\n", path, word, name)
     
     stdout, err := cmd.StdoutPipe()
