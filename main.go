@@ -146,7 +146,9 @@ func ReplaceAll(regex, replace, subject string) string {
 }
 
 func MenuDir(rd string, page *Page) {
-	(*page).Spath = filepath.Join("/_search", rd) + "/"
+	// (*page).Spath = filepath.Join("/_search", rd) + "/"
+	sp := filepath.Join("/_search", rd) + "/"
+	(*page).Spath = ReplaceAll(`\\`, "/", sp)
 
 	dn := DirNest{"/", "[TOP]"}
 	(*page).Dirnests = append((*page).Dirnests, dn)
@@ -155,6 +157,7 @@ func MenuDir(rd string, page *Page) {
 		return
 	}
 
+	rd = ReplaceAll(`\\`, "/", rd)
 	rd = ReplaceAll("^\\/", "", rd)
 	dirs := strings.Split(rd, "/")
 	nwd := ""
@@ -167,6 +170,16 @@ func MenuDir(rd string, page *Page) {
 	}
 }
 
+func filepathRel(base, dir string) (rd string, err error) {
+	rd, err = filepath.Rel(base, dir)
+	if err != nil {
+		return
+	}
+	rd = ReplaceAll(`\\`, "/", rd)
+	log.Println(rd)
+	return
+}
+
 func fileview(cwd string, w http.ResponseWriter, r *http.Request) {
 	name := r.URL.Path
 	fp := filepath.Join(cwd, name)
@@ -177,7 +190,7 @@ func fileview(cwd string, w http.ResponseWriter, r *http.Request) {
 	dir := filepath.Dir(fp)
 
 	// 階層メニュー Dirnests
-	rd, _ := filepath.Rel(cwd, dir)
+	rd, _ := filepathRel(cwd, dir)
 	MenuDir(rd, &page)
 
 	b, err := ioutil.ReadFile(filepath.Join(cwd, name))
@@ -266,7 +279,7 @@ func dirview(cwd string, w http.ResponseWriter, r *http.Request) {
 	fim := filepath.Join(dir, "index.md")
 	_, err := os.Stat(fim)
 	if err == nil {
-		rd, _ := filepath.Rel(cwd, fim)
+		rd, _ := filepathRel(cwd, fim)
 		http.Redirect(w, r, "/"+rd, http.StatusFound)
 		return
 	}
@@ -276,7 +289,7 @@ func dirview(cwd string, w http.ResponseWriter, r *http.Request) {
 	page.Title = name + " - mkup"
 
 	// 階層メニュー Dirnests
-	rd, _ := filepath.Rel(cwd, dir)
+	rd, _ := filepathRel(cwd, dir)
 	MenuDir(rd, &page)
 
 	files, err := ioutil.ReadDir(dir)
@@ -295,7 +308,7 @@ func dirview(cwd string, w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
-		fn, _ = filepath.Rel(cwd, fn)
+		fn, _ = filepathRel(cwd, fn)
 		if f.IsDir() {
 			page.Dirs = append(page.Dirs, "/"+fn)
 		} else {
@@ -341,7 +354,7 @@ func search(cwd string, w http.ResponseWriter, r *http.Request) {
 	page.Title = "search - mkup"
 
 	// 階層メニュー Dirnests
-	rd, _ := filepath.Rel(cwd, name)
+	rd, _ := filepathRel(cwd, name)
 	MenuDir(rd, &page)
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -384,12 +397,19 @@ func search(cwd string, w http.ResponseWriter, r *http.Request) {
 
 	fmt.Fprintf(w, "<h2>%s の検索結果</h2><br />\n", word)
 
+	top := cwd
+	top = ReplaceAll(`^[a-zA-Z]:`, "", top) // windows c: ...cut
+	top = ReplaceAll(`\\`, "/", top)        // windows path \ --> /
+
 	s := bufio.NewScanner(stdout)
 	b := ""
 	for s.Scan() {
 		t := s.Text()
+		t = ReplaceAll(`^[a-zA-Z]:`, "", t) // windows c: ...cut
+		t = ReplaceAll(`\\`, "/", t)        // windows path \ --> /
 		pr := strings.Split(t, ":")
-		f, err := filepath.Rel(cwd, pr[0])
+		f, err := filepathRel(top, pr[0])
+		log.Printf("%s %s", top, pr[0])
 		if err == nil {
 			if b != f {
 				b = f
@@ -452,7 +472,7 @@ func main() {
 		for {
 			select {
 			case event := <-fsw.Events:
-				if path, err := filepath.Rel(cwd, event.Name); err == nil {
+				if path, err := filepathRel(cwd, event.Name); err == nil {
 					path = "/" + filepath.ToSlash(path)
 					log.Println("reload", path)
 					lrs.Reload(path, true)
