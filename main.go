@@ -116,15 +116,15 @@ var (
 	addr = flag.String("http", ":8000", "HTTP service address (e.g., ':8000')")
 )
 
-type DirNest struct {
+type dirNest struct {
 	Path string
 	Name string
 }
 
-type Page struct {
+type page struct {
 	Title        string
 	Spath        string
-	Dirnests     []DirNest
+	Dirnests     []dirNest
 	Dirdisp      bool
 	Dirs         []string
 	Files        []string
@@ -132,26 +132,30 @@ type Page struct {
 	CodeText     string
 }
 
+// String type string
 type String string
 
+// Match regex match
 func Match(regex string, subject string) bool {
 	r := regexp.MustCompile(regex)
 	return r.MatchString(subject)
 }
 
+// ReplaceAll regex replace
 func ReplaceAll(regex, replace, subject string) string {
 	r := regexp.MustCompile(regex)
 	subject = r.ReplaceAllString(subject, replace)
 	return subject
 }
 
-func MenuDir(rd string, page *Page) {
-	// (*page).Spath = filepath.Join("/_search", rd) + "/"
+// MenuDir page top header
+func MenuDir(rd string, pg *page) {
+	// (*pg).Spath = filepath.Join("/_search", rd) + "/"
 	sp := filepath.Join("/_search", rd) + "/"
-	(*page).Spath = ReplaceAll(`\\`, "/", sp)
+	(*pg).Spath = ReplaceAll(`\\`, "/", sp)
 
-	dn := DirNest{"/", "[TOP]"}
-	(*page).Dirnests = append((*page).Dirnests, dn)
+	dn := dirNest{"/", "[TOP]"}
+	(*pg).Dirnests = append((*pg).Dirnests, dn)
 
 	if Match("^[\\/\\.]$", rd) {
 		return
@@ -162,11 +166,11 @@ func MenuDir(rd string, page *Page) {
 	dirs := strings.Split(rd, "/")
 	nwd := ""
 	for _, sd := range dirs {
-		dn := DirNest{}
+		dn := dirNest{}
 		nwd = nwd + "/" + sd
 		dn.Path = nwd
 		dn.Name = sd
-		(*page).Dirnests = append((*page).Dirnests, dn)
+		(*pg).Dirnests = append((*pg).Dirnests, dn)
 	}
 }
 
@@ -184,17 +188,17 @@ func fileview(cwd string, w http.ResponseWriter, r *http.Request) {
 	name := r.URL.Path
 	fp := filepath.Join(cwd, name)
 
-	page := Page{}
-	page.Title = name + " - mkup"
-	page.CodeFileDisp = true
+	pg := page{}
+	pg.Title = name + " - mkup"
+	pg.CodeFileDisp = true
 	dir := filepath.Dir(fp)
 
 	// 階層メニュー Dirnests
 	rd, _ := filepathRel(cwd, dir)
-	MenuDir(rd, &page)
+	MenuDir(rd, &pg)
 
 	b, err := ioutil.ReadFile(filepath.Join(cwd, name))
-	page.CodeText = string(b)
+	pg.CodeText = string(b)
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 
@@ -206,7 +210,7 @@ func fileview(cwd string, w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		panic(err)
 	}
-	err = tpl.Execute(w, page)
+	err = tpl.Execute(w, pg)
 	if err != nil {
 		panic(err)
 	}
@@ -233,12 +237,12 @@ func mdview(cwd string, w http.ResponseWriter, r *http.Request) {
 	renderer := blackfriday.HtmlRenderer(0, "", "")
 	b = blackfriday.Markdown(b, renderer, extensions)
 
-	page := Page{}
-	page.Title = filepath.Base(name) + " - mkup"
+	pg := page{}
+	pg.Title = filepath.Base(name) + " - mkup"
 
 	// 階層メニュー Dirnests
 	rd := filepath.Dir(name)
-	MenuDir(rd, &page)
+	MenuDir(rd, &pg)
 
 	// tpl
 	funcMap := template.FuncMap{
@@ -248,7 +252,7 @@ func mdview(cwd string, w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		panic(err)
 	}
-	err = tpl.Execute(w, page)
+	err = tpl.Execute(w, pg)
 	if err != nil {
 		panic(err)
 	}
@@ -284,13 +288,13 @@ func dirview(cwd string, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	page := Page{}
-	page.Dirdisp = true
-	page.Title = name + " - mkup"
+	pg := page{}
+	pg.Dirdisp = true
+	pg.Title = name + " - mkup"
 
 	// 階層メニュー Dirnests
 	rd, _ := filepathRel(cwd, dir)
-	MenuDir(rd, &page)
+	MenuDir(rd, &pg)
 
 	files, err := ioutil.ReadDir(dir)
 	if err != nil {
@@ -310,10 +314,10 @@ func dirview(cwd string, w http.ResponseWriter, r *http.Request) {
 
 		fn, _ = filepathRel(cwd, fn)
 		if f.IsDir() {
-			page.Dirs = append(page.Dirs, "/"+fn)
+			pg.Dirs = append(pg.Dirs, "/"+fn)
 		} else {
 			if Match("\\.(md|markdown|mkd)$", fn) {
-				page.Files = append(page.Files, "/"+fn)
+				pg.Files = append(pg.Files, "/"+fn)
 			}
 		}
 	}
@@ -328,7 +332,7 @@ func dirview(cwd string, w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		panic(err)
 	}
-	err = tpl.Execute(w, page)
+	err = tpl.Execute(w, pg)
 	if err != nil {
 		panic(err)
 	}
@@ -350,12 +354,12 @@ func search(cwd string, w http.ResponseWriter, r *http.Request) {
 	}
 	name = filepath.Join(cwd, name)
 
-	page := Page{}
-	page.Title = "search - mkup"
+	pg := page{}
+	pg.Title = "search - mkup"
 
 	// 階層メニュー Dirnests
 	rd, _ := filepathRel(cwd, name)
-	MenuDir(rd, &page)
+	MenuDir(rd, &pg)
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 
@@ -390,7 +394,7 @@ func search(cwd string, w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		panic(err)
 	}
-	err = tpl.Execute(w, page)
+	err = tpl.Execute(w, pg)
 	if err != nil {
 		panic(err)
 	}
