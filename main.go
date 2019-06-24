@@ -363,6 +363,19 @@ func search(cwd string, w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 
+	// tpl
+	funcMap := template.FuncMap{
+		"basename": filepath.Base,
+	}
+	tpl, err := template.New("foo").Funcs(funcMap).Parse(templateup)
+	if err != nil {
+		panic(err)
+	}
+	err = tpl.Execute(w, pg)
+	if err != nil {
+		panic(err)
+	}
+
 	// fmt.Fprintf(w, "search %s  word→%s", name, word)
 	path, err := exec.LookPath("ag")
 
@@ -384,19 +397,6 @@ func search(cwd string, w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		http.Error(w, "404 page not found (ag not found)", 404)
 		return
-	}
-
-	// tpl
-	funcMap := template.FuncMap{
-		"basename": filepath.Base,
-	}
-	tpl, err := template.New("foo").Funcs(funcMap).Parse(templateup)
-	if err != nil {
-		panic(err)
-	}
-	err = tpl.Execute(w, pg)
-	if err != nil {
-		panic(err)
 	}
 
 	fmt.Fprintf(w, "<h2>%s の検索結果</h2><br />\n", word)
@@ -427,6 +427,12 @@ func search(cwd string, w http.ResponseWriter, r *http.Request) {
 	}
 
 	fmt.Fprint(w, templatedown)
+
+	err = cmd.Wait()
+	if err != nil {
+		http.Error(w, "404 page not found (ag not found)", 404)
+		return
+	}
 
 	return
 }
