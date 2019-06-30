@@ -18,6 +18,7 @@ import (
 	"regexp"
 	"runtime"
 	"strings"
+	"time"
 
 	"github.com/omeid/livereload"
 	"github.com/russross/blackfriday"
@@ -522,8 +523,14 @@ func main() {
 		fp := filepath.Join(cwd, name)
 		info, err := os.Stat(fp)
 		if err != nil {
-			http.Error(w, "404 page not found", 404)
-			return
+			// wsl ファイル更新時ファイルが無い状態があるので
+			//  １秒待って再度 ファイル状態を取得
+			time.Sleep(1 * time.Second)
+			info, err = os.Stat(fp)
+			if err != nil {
+				http.Error(w, "404 page not found", 404)
+				return
+			}
 		}
 
 		if info.IsDir() {
